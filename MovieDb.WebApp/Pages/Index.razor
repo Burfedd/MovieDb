@@ -1,0 +1,158 @@
+﻿@page "/"
+
+<PageTitle>Weather forecast</PageTitle>
+
+@using MovieDb.Utility.Models
+@using MovieDb.Utility.Services.OmdbApi
+@using MovieDb.WebApp.Services.Storage
+@inject IOmdbApiService _omdbApiService
+@inject PreloadService _preloadService
+@inject ILocalStorageService _storageService
+@inject ISavedQueriesService _savedQueriesService
+
+<div class="container p-3">
+    <div class="row text-center">
+        <h3>MovieDb - Movie Search Service</h3>
+    </div>
+</div>
+
+<div class="container p-3">
+    <div class="row">
+        <div class="col-9">
+            <input type="text" class="form-control" @bind="_textInput"></input>
+        </div>
+        <div class="col-3">
+            <Button Class="btn btn-primary col-12" @onclick="GetMovies">Search</Button>
+        </div>
+    </div>
+</div>
+
+<div class="container p-3">
+    <Card>
+        <CardHeader>
+            <CardTitle>
+                Previous search queries:
+            </CardTitle>
+        </CardHeader>
+        <CardBody>
+            <div class="row text-center">
+                @foreach (string query in _savedQueries)
+                {
+                    <div class="col-3 p-2">
+                        <Button Class="btn btn-secondary col-12" @onclick="() => _textInput = query">@query</Button>
+                    </div>
+                }
+            </div>
+        </CardBody>
+    </Card>
+</div>
+
+<div class="container">
+    @if (_searchResult != null)
+    {
+        int i = 0;
+
+        <Accordion>
+            @foreach (var movie in _searchResult.Movies)
+            {
+                <AccordionItem>
+                    <TitleTemplate>
+                        <div class="container" @onclick="() => OnMovieExpand(movie.ImdbID)">
+                            @movie.Title
+                        </div>
+                    </TitleTemplate>
+                    <Content>
+                        <Card Class="card">
+                            <CardHeader Class="text-center">
+                                <b>@_movieDetails.Title</b> <text class="text-secondary">[@_movieDetails.Genre]</text>
+                            </CardHeader>
+                            <CardBody>
+                                <div class="row">
+                                    <div class="col-9">
+                                        <p>
+                                            @_movieDetails.Plot
+                                        </p>
+                                    </div>
+                                    <div class="col-3">
+                                        <img class="img-fluid float-right rounded" src="@movie.Poster" />
+                                    </div>
+                                </div>
+                                <div class="row float-left">
+                                    <p><b><Icon Name="IconName.Camera" /> Directed by:</b> @_movieDetails.Director</p>
+                                    <p><b><Icon Name="IconName.Pencil" /> Written by:</b> @_movieDetails.Writer</p>
+                                    <p><b><Icon Name="IconName.Star" /> Starring:</b> @_movieDetails.Actors</p>
+                                </div>
+                            </CardBody>
+                            <CardFooter>
+                                <div class="container float-right">
+                                    <div class="row">
+                                        <div class="col-6 text-start">
+                                            <i>Released in @_movieDetails.Released</i>
+                                        </div>
+                                        <div class="col-6 text-end">
+                                            <i>IMDb score: @_movieDetails.imdbRating (@_movieDetails.imdbVotes votes)</i>
+                                        </div>
+                                    </div>
+                                </div>
+                            </CardFooter>
+                        </Card>
+                    </Content>
+                </AccordionItem>
+                i++;
+            }
+        </Accordion>
+        if (_numberOfResults > 10)
+        {
+            <Pagination TotalPages=@(_numberOfResults / 10 + (_numberOfResults % 10 > 0 ? 1 : 0))
+                        PageChanged="OnPageChangedAsync" />
+        }
+    }
+</div>
+
+
+@code {
+    private SearchResult? _searchResult;
+    private MovieDetails? _movieDetails;
+    private int _numberOfResults;
+    private string? _textInput;
+    private IList<string>? _savedQueries;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _movieDetails = new MovieDetails();
+        _savedQueries = new List<string>();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        _savedQueries = await _savedQueriesService.GetLastSearchQueriesAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    protected async Task GetMovies()
+    {
+        if (_textInput != null)
+        {
+            _preloadService.Show();
+            await _savedQueriesService.PushNewSearchQueryAsync(_textInput);
+            _searchResult = await _omdbApiService.GetMoviesByTitle(_textInput);
+            string searchResult = _searchResult != null ? (_searchResult.TotalResults != null ? _searchResult.TotalResults : "1") : "1";
+            _numberOfResults = int.Parse(searchResult);
+            _preloadService.Hide();
+        }
+    }
+
+    private async Task OnPageChangedAsync(int newPageNumber)
+    {
+        _preloadService.Show();
+        _searchResult = await _omdbApiService.GetMoviesByTitle(_textInput, newPageNumber);
+        _preloadService.Hide();
+    }
+
+    private async Task OnMovieExpand(string imdbId)
+    {
+        _preloadService.Show();
+        _movieDetails = await _omdbApiService.GetDetailedDescription(imdbId);
+        _preloadService.Hide();
+    }
+}
